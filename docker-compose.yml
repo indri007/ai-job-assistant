@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  job-assistant:
+    build: .
+    container_name: ai_job_assistant
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./dataset:/app/dataset

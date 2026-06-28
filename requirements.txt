@@ -1,0 +1,13 @@
+streamlit
+requests
+python-dotenv
+pandas
+qdrant-client
+mysql-connector-python
+fastembed
+cohere
+PyPDF2
+pdfplumber
+python-docx
+pytesseract
+pdf2image

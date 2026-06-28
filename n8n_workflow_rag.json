@@ -1,0 +1,134 @@
+{
+  "name": "AI Job Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "job-assistant",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.query }}",
+        "options": {
+          "systemMessage": "Anda adalah Asisten Karir AI. Gunakan tool Qdrant (untuk lowongan) atau MySQL (untuk perhitungan/gaji) untuk menjawab. JANGAN gunakan web search atau pengetahuan umum untuk mengisi informasi yang tidak ditemukan."
+        }
+      },
+      "id": "agent-1",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.4,
+      "position": [300, 200]
+    },
+    {
+      "parameters": {
+        "model": "llama3-70b-8192"
+      },
+      "id": "groq-1",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [300, 400]
+    },
+    {
+      "parameters": {
+        "name": "qdrant_tool",
+        "description": "Cari informasi pekerjaan (job_title, company_name, job_description) di database vektor Qdrant.",
+        "topK": 5
+      },
+      "id": "tool-vector",
+      "name": "Vector Store Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1,
+      "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "collectionName": "job_embeddings",
+        "options": {
+          "similarityThreshold": 0.5
+        }
+      },
+      "id": "qdrant-1",
+      "name": "Qdrant Vector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [500, 600]
+    },
+    {
+      "parameters": {
+        "model": "embed-multilingual-v3.0"
+      },
+      "id": "cohere-1",
+      "name": "Cohere Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsCohere",
+      "typeVersion": 1,
+      "position": [500, 800]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Tool",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cohere Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
