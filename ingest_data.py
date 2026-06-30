@@ -56,9 +56,7 @@ def process_and_ingest_data(mysql_conn, qdrant_client):
     print("Membaca dataset JSONL...")
     df = pd.read_json(DATASET_PATH, lines=True)
     
-    # Batasi jumlah data untuk uji coba (100 data)
-    df = df.head(100)
-    print(f"Memproses {len(df)} data pertama dari dataset...")
+    print(f"Memproses {len(df)} data dari dataset...")
 
     # 1. Ingestion ke Qdrant (dengan Cohere Embeddings)
     print("Inisialisasi Cohere Client...")
@@ -91,7 +89,8 @@ def process_and_ingest_data(mysql_conn, qdrant_client):
         for chunk in chunks:
             docs.append(chunk)
             metadata.append({
-                "pageContent": chunk,  # Wajib sama persis case-nya untuk N8N
+                "pageContent": chunk,  # Untuk N8N versi lama
+                "page_content": chunk, # Untuk N8N versi baru / Langchain default
                 "metadata": {
                     "job_title": str(row.get('job_title', '')),
                     "company_name": str(row.get('company_name', '')),
@@ -102,9 +101,8 @@ def process_and_ingest_data(mysql_conn, qdrant_client):
             ids.append(current_id)
             current_id += 1
 
-    # Batch embedding (Cohere limits 96 docs per batch for optimal performance, but can handle more)
-    # We will do it in chunks of 50 to be safe with rate limits on trial keys
-    batch_size = 50
+    # Batch embedding
+    batch_size = 25
     points = []
     
     for i in range(0, len(docs), batch_size):
@@ -113,33 +111,43 @@ def process_and_ingest_data(mysql_conn, qdrant_client):
         batch_ids = ids[i:i+batch_size]
         
         print(f"Mengubah batch {i+1} ke {i+len(batch_docs)} menjadi vektor...")
-        response = co.embed(
-            texts=batch_docs,
-            model='embed-multilingual-v3.0',
-            input_type='search_document'
-        )
-        embeddings = response.embeddings
         
+        # Retry logic for Cohere API
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = co.embed(
+                    texts=batch_docs,
+                    model='embed-multilingual-v3.0',
+                    input_type='search_document'
+                )
+                embeddings = response.embeddings
+                break
+            except Exception as e:
+                print(f"Error Cohere API pada attempt {attempt+1}: {e}")
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(10)
+        
+        batch_points = []
         for j in range(len(embeddings)):
-            points.append(
+            batch_points.append(
                 PointStruct(
                     id=batch_ids[j],
                     vector=embeddings[j],
                     payload=batch_meta[j]
                 )
             )
-        time.sleep(1) # Delay untuk mencegah rate limit
-
-    print(f"Mengirim {len(points)} vektor ke Qdrant Cloud dalam beberapa bagian...")
-    chunk_size = 25
-    for i in range(0, len(points), chunk_size):
-        chunk = points[i:i+chunk_size]
+            
+        print(f"Menyimpan batch {i+1} ke Qdrant...")
         qdrant_client.upsert(
             collection_name=QDRANT_COLLECTION,
-            points=chunk
+            points=batch_points
         )
-        time.sleep(0.5)
-    
+        
+        print("Tunggu 5 detik untuk mencegah rate limit Cohere...")
+        time.sleep(5) # Delay untuk mencegah rate limit
+        
     print("Berhasil menyimpan embeddings Cohere ke Qdrant!")
 
 if __name__ == "__main__":

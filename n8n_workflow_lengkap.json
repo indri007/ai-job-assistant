@@ -1,0 +1,240 @@
+{
+  "name": "AI Job Assistant (Lengkap RAG + SQL)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "job-assistant",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b870661b-79cb-45c9-855e-54e04fef4088",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        176,
+        -176
+      ],
+      "webhookId": "3d047310-11a9-4b30-a0bc-7e144e70ffca"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.query }}",
+        "options": {
+          "systemMessage": "Anda adalah Asisten Karir AI. Gunakan tool Qdrant (untuk lowongan, skill, deskripsi) atau tool SQL (untuk pencarian spesifik terkait GAJI/salary dan TIPE PEKERJAAN/work type) untuk menjawab.\n\nAnda DILARANG KERAS mengarang lowongan fiktif. Selalu gunakan nama PT yang asli dari database."
+        }
+      },
+      "id": "d899f28a-bc6a-4b91-a044-248955350d9d",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.4,
+      "position": [
+        464,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {}
+      },
+      "id": "55e93fb7-e353-403a-a00f-915549fc091a",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        432,
+        176
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "vtSGfalTg3cvE95X",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "qdranttool",
+        "description": "Cari informasi pekerjaan (job_title, company_name, job_description) di database vektor Qdrant.",
+        "topK": 10
+      },
+      "id": "b1264cdd-7ef0-43f4-ad50-75a79adc3622",
+      "name": "Vector Store Tool (RAG)",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1,
+      "position": [
+        750,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "job_embeddings",
+          "mode": "list",
+          "cachedResultName": "job_embeddings"
+        },
+        "options": {
+          "contentPayloadKey": "page_content"
+        }
+      },
+      "id": "ac8b6d83-f919-4144-8a6d-8f74962f8e29",
+      "name": "Qdrant Vector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [
+        640,
+        224
+      ],
+      "credentials": {
+        "qdrantApi": {
+          "id": "a5kz780iJkEcCFFY",
+          "name": "QdrantApi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "embed-multilingual-v3.0"
+      },
+      "id": "5bd4ab74-5575-4561-bf4a-d8fedd6c012e",
+      "name": "Cohere Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsCohere",
+      "typeVersion": 1,
+      "position": [
+        736,
+        432
+      ],
+      "credentials": {
+        "cohereApi": {
+          "id": "QsCkR7hAPfT24Qk1",
+          "name": "CohereApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "sql_tool",
+        "description": "Gunakan tool ini HANYA JIKA pertanyaan berkaitan dengan ANGKA GAJI (salary) atau TIPE PEKERJAAN (work type seperti full time, part time, dll). Tool ini akan mengeksekusi query SQL ke database MySQL."
+      },
+      "id": "sql-agent-tool-id",
+      "name": "SQL Database Tool (SQL Agent)",
+      "type": "@n8n/n8n-nodes-langchain.toolSql",
+      "typeVersion": 1,
+      "position": [
+        750,
+        -200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "mysql-database-node",
+      "name": "MySQL",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2,
+      "position": [
+        950,
+        -200
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Vector Store Tool (RAG)",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "SQL Database Tool (SQL Agent)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Tool (RAG)": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL Database Tool (SQL Agent)": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MySQL": {
+      "ai_database": [
+        [
+          {
+            "node": "SQL Database Tool (SQL Agent)",
+            "type": "ai_database",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Tool (RAG)",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cohere Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1a2b3c4d-5678-90ef-1234-abcdef123456"
+}

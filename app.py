@@ -82,16 +82,21 @@ def send_to_n8n(query, mode, cv_text=""):
         response = requests.post(N8N_WEBHOOK_URL, json=payload, timeout=60)
         response.raise_for_status()
         
-        # N8N Agent (Langchain) biasanya mengembalikan response dalam struktur tertentu
-        result = response.json()
         
         # Mengecek format output N8N (biasanya di properti 'output' atau 'text')
-        if isinstance(result, list) and len(result) > 0:
-            return result[0].get("output", result[0].get("text", str(result[0])))
-        elif isinstance(result, dict):
-            return result.get("output", result.get("text", str(result)))
+        if response.status_code == 200:
+            result = response.json()
+            # Debug log to terminal
+            print("RAW N8N RESPONSE:", result)
+            
+            if isinstance(result, list) and len(result) > 0:
+                return result[0].get("output", result[0].get("text", str(result[0])))
+            elif isinstance(result, dict):
+                return result.get("output", result.get("text", str(result)))
+            else:
+                return str(result)
         else:
-            return str(result)
+            return f"Error: Gagal terhubung ke N8N Webhook (Status Code: {response.status_code})"
             
     except requests.exceptions.ConnectionError:
         return "❌ Error: Tidak dapat terhubung ke N8N. Pastikan N8N sedang berjalan dan URL Webhook sudah benar."
@@ -117,24 +122,25 @@ with st.sidebar:
                     cv_text = extract_text_from_docx(uploaded_file)
                     
                 if cv_text:
-                    prompt = "Tolong analisis CV saya ini dan carikan lowongan pekerjaan yang paling cocok dari database Anda."
-                    
                     # Tambahkan ke UI
+                    prompt = "Tolong analisis CV saya ini dan carikan lowongan pekerjaan yang paling cocok dari database Anda."
                     st.session_state.messages.append({"role": "user", "content": "*(Mengunggah CV untuk dianalisis)*\n\n" + prompt})
                     
-                    # Kirim ke N8N dengan instruksi qdrant_tool
-                    strict_prompt = f"""Gunakan tool Qdrant (qdrant_tool) untuk mencari data terkait ini: '{prompt}'.
+                    full_query = f"""Tolong analisis CV saya ini dan temukan lowongan pekerjaan yang paling cocok dari database Anda.
 
-ATURAN WAJIB:
-1. WAJIB sebutkan nama perusahaan HANYA jika ada di hasil pencarian Qdrant.
-2. JANGAN MENGARANG nama perusahaan (seperti PT Indofood, Unilever, dll) jika tidak ada di database.
-3. JANGAN gunakan web search atau pengetahuan umum untuk mengisi informasi yang tidak ditemukan.
-4. Jika hasil pencarian Qdrant kosong atau tidak relevan dengan pertanyaan, jawab dengan jujur: "Maaf, saya tidak menemukan data lowongan yang sesuai di database kami saat ini."
-5. Jangan menambahkan asumsi, perkiraan, atau informasi di luar hasil tool Qdrant.
+ATURAN WAJIB (SANGAT KETAT):
+1. PENTING: ANDA DILARANG KERAS menjawab berdasarkan pengetahuan Anda sendiri. Anda WAJIB memanggil Tool Qdrant untuk mencari kecocokan CV ini dengan database lowongan kerja.
+2. CARA MENGGUNAKAN TOOL: Saat memanggil Tool Qdrant, JANGAN memasukkan kata seperti 'Internship', 'Bogor', atau lokasi. Cukup masukkan DAFTAR SKILL TEKNIS saja sebagai kata kunci pencarian (contoh: 'JavaScript, HTML, CSS, PHP, MySQL').
+3. PENTING: JIKA Tool Qdrant mengembalikan data lowongan (sekalipun lokasinya atau jabatannya tidak sama persis dengan CV pengguna), Anda WAJIB menyajikannya kepada pengguna sebagai "Rekomendasi Berdasarkan Skill"! JANGAN membuang/menolak data tersebut hanya karena perbedaan lokasi atau tingkat jabatan.
+4. Anda WAJIB memberikan rekomendasi spesifik yang mencantumkan nama perusahaan dan jabatan secara lengkap.
+5. HANYA JIKA Tool benar-benar merespons dengan hasil kosong, jawab persis seperti ini: "Maaf, belum ada lowongan yang cocok dengan CV Anda di database."
+6. PENTING: Untuk menghemat token, Anda HANYA BOLEH memanggil Tool Qdrant SATU KALI SAJA. 
+7. PENTING: Di baris PALING BAWAH dari jawaban Anda, tambahkan teks persis seperti ini: "*(Sumber: Agent RAG)*".
 
-Pertanyaan pengguna: {prompt}"""
+Isi CV Saya:
+{cv_text[:2000]}"""
                     
-                    answer = send_to_n8n(strict_prompt, "Rekomendasi CV", cv_text)
+                    answer = send_to_n8n(full_query, "Rekomendasi CV", cv_text)
                     st.session_state.messages.append({"role": "assistant", "content": answer})
                     st.rerun()
             
@@ -163,20 +169,40 @@ if prompt := st.chat_input("Contoh: Cari lowongan Data Analyst di Jakarta..."):
         message_placeholder = st.empty()
         message_placeholder.markdown("*(Agen N8N sedang berpikir...)*")
         
-        # Kirim ke N8N Webhook dengan instruksi paksaan agar tidak halusinasi
-        strict_prompt = f"""Gunakan tool Qdrant (qdrant_tool) untuk mencari data terkait ini: '{prompt}'.
+        # Sesuaikan prompt berdasarkan mode yang dipilih
+        if chat_mode == "Konsultasi Karir":
+            strict_prompt = f"""Tolong berikan konsultasi karir terkait pertanyaan ini: '{prompt}'.
+Anda adalah seorang konsultan karir profesional. Berikan saran terkait pengembangan karir, perbaikan CV, tren industri, atau transisi karir.
+Gunakan pengetahuan umum Anda, dan jika relevan, cari data lowongan menggunakan Tool Qdrant.
+PENTING: Di baris PALING BAWAH dari jawaban Anda, tambahkan teks persis seperti ini: "*(Sumber: Agent Utama)*".
+Pertanyaan pengguna: {prompt}"""
+        elif chat_mode == "Simulasi Wawancara":
+            strict_prompt = f"""Tolong lakukan simulasi wawancara untuk pertanyaan ini: '{prompt}'.
+Anda adalah seorang HRD atau User Interviewer yang tegas namun suportif. Tugas Anda adalah mewawancarai pengguna.
+Ajukan 1 pertanyaan wawancara saja dan tunggu jawaban dari pengguna. Jika pengguna menjawab, evaluasi jawabannya secara singkat, lalu berikan 1 pertanyaan berikutnya.
+Gunakan pengetahuan umum Anda.
+PENTING: Di baris PALING BAWAH dari jawaban Anda, tambahkan teks persis seperti ini: "*(Sumber: Agent Utama)*".
+Pertanyaan/jawaban pengguna: {prompt}"""
+        else:
+            # Mode Pencarian Umum (Chat)
+            strict_prompt = f"""Tolong carikan data terkait ini: '{prompt}'.
 
 ATURAN WAJIB:
-1. WAJIB sebutkan nama perusahaan HANYA jika ada di hasil pencarian Qdrant.
-2. JANGAN MENGARANG nama perusahaan (seperti PT Indofood, Unilever, dll) jika tidak ada di database.
-3. JANGAN gunakan web search atau pengetahuan umum untuk mengisi informasi yang tidak ditemukan.
-4. Jika hasil pencarian Qdrant kosong atau tidak relevan dengan pertanyaan, jawab dengan jujur: "Maaf, saya tidak menemukan data lowongan yang sesuai di database kami saat ini."
-5. Jangan menambahkan asumsi, perkiraan, atau informasi di luar hasil tool Qdrant.
+1. PENTING: ANDA DILARANG KERAS menjawab berdasarkan pengetahuan Anda sendiri. Anda WAJIB memanggil salah satu Tool (Qdrant atau MySQL) untuk mencari data.
+2. Jika pertanyaan HANYA meminta hitungan angka (contoh: "ada berapa total lowongan", "berapa rata-rata gaji") atau filter gaji eksak, Anda WAJIB menggunakan tool SQL/Database.
+3. Jika pengguna mencari lowongan berdasarkan NAMA PEKERJAAN (contoh: "cari lowongan sales", "lowongan data analyst"), KEAHLIAN (skill), LOKASI, atau KUALIFIKASI, Anda WAJIB menggunakan tool Qdrant.
+4. WAJIB menampilkan DAFTAR/LIST (bullet points) NAMA PEKERJAAN beserta NAMA PERUSAHAAN, LOKASI, dan GAJI (jika ada).
+5. JIKA tool mengembalikan hasil kosong, JANGAN MENGARANG. Jawab jujur bahwa tidak ada data di database.
+6. JANGAN MENGARANG nama perusahaan atau gaji jika tidak ada di database.
+7. INFO SCHEMA DATABASE: Nama tabel di database MySQL adalah `jobs`. Kolom: `job_title`, `company_name`, `location`, `work_type`, `salary` (berupa TEKS, misal 'Rp 10.000.000 per month' atau 'None'), `job_description`.
+8. PENTING: Karena `salary` adalah TEKS, JANGAN gunakan operator matematika (`>`, `<`, `=`) untuk filter gaji. Jika diminta "gaji di atas 5 juta", cukup ambil semua data yang `salary != 'None'` lalu Anda filter sendiri secara manual saat menyusun jawaban akhir.
+9. JAWABAN AKHIR ANDA WAJIB DALAM BENTUK TEKS BIASA (BUKAN FORMAT JSON).
+10. PENTING: Di baris PALING BAWAH dari jawaban Anda, tambahkan teks persis seperti ini: "*(Sumber: Agent SQL)*" jika Anda memakai SQL, atau "*(Sumber: Agent RAG)*" jika Anda memakai Qdrant.
 
 Pertanyaan pengguna: {prompt}"""
         
         # Panggil fungsi Webhook N8N
-        answer = send_to_n8n(strict_prompt, chat_mode)
+        answer = send_to_n8n(strict_prompt, chat_mode, "")
         
         # Tampilkan balasan sesungguhnya
         message_placeholder.markdown(answer)
